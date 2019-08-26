@@ -38,9 +38,9 @@ jobs:
       ./configure --host=mips64-elf --prefix=$BUILD_ARTIFACTSTAGINGDIRECTORY
       make
       make install
-      #cat config.log #use for debug
+      cat config.log #use for debug
     displayName: 'Build Lib'
-    continueOnError: true
+    continueOnError: false
 
   # Publish build artifacts to Azure Artifacts/TFS or a file share
   - task: PublishBuildArtifacts@1
