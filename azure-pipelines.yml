@@ -1,0 +1,88 @@
+jobs:
+- job: Linux
+  pool:
+    vmImage: 'ubuntu-16.04'
+  steps:
+  - bash: |   
+      sudo add-apt-repository ppa:jonathonf/gcc -y
+      sudo apt-get -qq update
+
+      sudo apt-get install -y build-essential software-properties-common
+      sudo apt-get install -y gcc-9
+    displayName: 'Setup Environment'
+    continueOnError: false
+
+  - script: |
+      curl -L https://n64tools.blob.core.windows.net/binaries/N64-tools/libdragon/develop/latest/libdragon-linux64.tar.gz --output libdragon-linux64.tar.gz
+    displayName: 'Get dependencies'
+    continueOnError: false
+
+  - task: ExtractFiles@1
+    inputs:
+      archiveFilePatterns: 'libdragon-linux64.tar.gz' 
+      destinationFolder: toolchain/libdragon
+      cleanDestinationFolder: false 
+    displayName: 'Extract libdragon-linux64'
+    continueOnError: false
+
+  - bash: |
+      export PATH=$BUILD_SOURCESDIRECTORY/toolchain/libdragon/gcc-toolchain-mips64/bin:$PATH
+      export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$BUILD_SOURCESDIRECTORY/toolchain/libdragon/gcc-toolchain-mips64/x86_64-pc-linux-gnu/mips64-elf/lib/
+      sudo ldconfig
+      
+      ./bootstrap
+      
+      CC="$BUILD_SOURCESDIRECTORY/toolchain/libdragon/gcc-toolchain-mips64/bin/mips64-elf-gcc" \
+      LD="$BUILD_SOURCESDIRECTORY/toolchain/libdragon/gcc-toolchain-mips64/bin/mips64-elf-ld" \
+      CFLAGS="-std=c17 -march=vr4300 -mtune=vr4300 -I$BUILD_SOURCESDIRECTORY/toolchain/libdragon/gcc-toolchain-mips64/mips64-elf/include/" \
+      LDFLAGS="-L$BUILD_SOURCESDIRECTORY/toolchain/libdragon/gcc-toolchain-mips64/mips64-elf/lib/ -Tn64ld.x" \
+      LIBS="-ldragon -lc -ldragonsys -lnosys" \
+      ./configure --host=mips64-elf --prefix=$BUILD_ARTIFACTSTAGINGDIRECTORY
+      make
+      make install
+      #cat config.log #use for debug
+    displayName: 'Build Lib'
+    continueOnError: false
+
+  # Publish build artifacts to Azure Artifacts/TFS or a file share
+  - task: PublishBuildArtifacts@1
+    displayName: Publish Build Artifacts
+    inputs:
+      pathtoPublish: '$(Build.ArtifactStagingDirectory)'
+      artifactName: 'libyaml' 
+      publishLocation: 'Container' # Options: container, filePath
+      #targetPath: # Required when publishLocation == FilePath
+      parallel: true # Optional
+      #parallelCount: # Optional
+
+  # Archive Files
+  # Archive files using compression formats such as .7z, .rar, .tar.gz, and .zip.
+  - task: ArchiveFiles@2
+    inputs:
+      rootFolderOrFile: '$(Build.ArtifactStagingDirectory)' 
+      includeRootFolder: false
+      archiveType: 'zip' # Options: zip, 7z, tar, wim
+      #tarCompression: 'gz' # Optional. Options: gz, bz2, xz, none
+      archiveFile: '$(Build.ArtifactStagingDirectory)/libyaml.zip' 
+      #replaceExistingArchive: true
+
+  - task: AzureCLI@1
+    inputs:
+      connectedServiceNameARM: 'MsdnAzureServiceRole'
+      scriptLocation: 'inlineScript'
+      inlineScript: 'az storage blob upload --account-name n64tools -f $(Build.ArtifactStagingDirectory)/libyaml.zip -c binaries -n N64-tools/libs/$(Build.SourceBranchName)/latest/libyaml.zip'
+    displayName: Upload linux binary to Blob storage
+
+  #- task: GithubRelease@0 
+  #  displayName: 'Create GitHub Release'      
+  #  inputs:
+  #    gitHubConnection: libmad
+  #    repositoryName: N64-tools/libyaml
+  #    #tagSource: manual
+  #    #tag: $(Build.BuildNumber)      
+  #    assets: |
+  #         $(Build.ArtifactStagingDirectory)/*
+  #    isDraft: true # Optional
+  #    action: 'create' # Options: create, edit, delete
+  #    target: '$(Build.SourceVersion)' # Required when action == Create || Action == Edit
+  #    tagSource: 'auto' # Required when action == Create# Options: auto, manual
